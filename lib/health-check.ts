@@ -38,7 +38,15 @@ export async function performHealthCheck(input: string) {
       timestamp: new Date().toISOString(),
     };
   } catch (error) {
-    const message = error instanceof Error && error.name === "TimeoutError" ? "İstek 5 saniye içinde yanıt vermedi" : error instanceof Error ? error.message : "Bilinmeyen bağlantı hatası";
+    let message = "Bilinmeyen bağlantı hatası";
+    if (error instanceof Error) {
+      if (error.name === "TimeoutError") message = "İstek 5 saniye içinde yanıt vermedi";
+      else {
+        // Node.js fetch hatalarında asıl sebep error.cause içindedir
+        const cause = (error as any).cause;
+        message = cause && cause.message ? `Bağlantı hatası: ${cause.message}` : error.message;
+      }
+    }
     return { success: false, statusCode: null, responseTime: Math.round(performance.now() - started), response: "", error: message, timestamp: new Date().toISOString() };
   }
 }
