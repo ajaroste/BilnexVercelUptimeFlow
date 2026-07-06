@@ -68,8 +68,11 @@ async function checkEndpoint(
     }),
   });
 
-  // health_logs: up değilse anında yaz, up ise her 5 check'te bir yaz
-  const shouldLog = currentStatus !== "up" || totalChecks % 5 === 0;
+  // health_logs:
+  // 1. Durum değiştiyse (UP->DOWN veya DOWN->UP) KESİNLİKLE anında yaz.
+  // 2. Durum DOWN ise (200 harici, hata vs.) KESİNLİKLE anında yaz.
+  // 3. Arka arkaya 200 (UP) geliyorsa log spamı yapmamak için her 20 denemede 1 yaz.
+  const shouldLog = changed || currentStatus !== "up" || totalChecks % 20 === 0;
   if (shouldLog) {
     await realtimeRequest("health_logs", {
       method: "POST",
