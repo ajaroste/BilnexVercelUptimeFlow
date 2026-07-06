@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/cron/check?interval=1", "schedule": "* * * * *" },
+    { "path": "/api/cron/check?interval=10", "schedule": "*/10 * * * *" }
+  ]
+}
