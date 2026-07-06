@@ -3,7 +3,7 @@ name: Uptime Cron Job
 on:
   schedule:
     # Her 5 dakikada bir çalışır
-    - cron: '*/10 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch: # Manuel tetiklemeye izin ver
 
 jobs:
