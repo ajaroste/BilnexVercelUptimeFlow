@@ -60,7 +60,7 @@ export function Select({ value, onChange, options, label, placeholder = "Seçini
             open && "border-brand-500 ring-2 ring-brand-500/15 dark:border-brand-500",
           )}
         >
-          <span className="truncate">{selected?.label ?? placeholder}</span>
+          <span className="text-left leading-tight">{selected?.label ?? placeholder}</span>
           <ChevronDown className={cn("size-3.5 shrink-0 text-slate-400 transition-transform duration-150", open && "rotate-180")} />
         </button>
 
@@ -84,7 +84,7 @@ export function Select({ value, onChange, options, label, placeholder = "Seçini
                       : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700/60",
                   )}
                 >
-                  <span className="truncate">{option.label}</span>
+                  <span className="text-left leading-tight">{option.label}</span>
                   {isSelected && <Check className="size-3.5 shrink-0 text-brand-500" />}
                 </button>
               );
