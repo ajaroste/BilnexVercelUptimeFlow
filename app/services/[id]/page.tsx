@@ -76,7 +76,7 @@ export default function ServiceDetail({ params }: { params: Promise<{ id: string
       </div>
 
       {/* Response time chart */}
-      {logs.length > 1 && (
+      {logs.length > 0 && (
         <section className="card mt-5 min-w-0 p-4">
           <div>
             <h2 className="font-bold">Yanıt süresi</h2>
