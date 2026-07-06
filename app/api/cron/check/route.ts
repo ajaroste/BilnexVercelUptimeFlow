@@ -41,6 +41,12 @@ async function checkEndpoint(
   incidents: Stored<Incident>,
 ) {
   const result = await performHealthCheck(endpoint.endpoint);
+  
+  // ECONNRESET hatasını Firebase'e hiçbir şekilde yansıtma (Pas geç)
+  if (result.error && result.error.includes("ECONNRESET")) {
+    return result;
+  }
+
   const currentStatus = result.success ? "up" : "down";
   const changed = endpoint.currentStatus !== currentStatus;
   const counters = endpoint as Omit<HealthEndpoint, "id"> & {
