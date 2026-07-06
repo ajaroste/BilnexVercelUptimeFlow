@@ -38,8 +38,6 @@ export function ServiceCard({ service, logs }: { service: Service; logs: HealthL
           <Metric value={`%${service.uptime24h.toFixed(2)}`} label="24s uptime" accent={isDown ? "red" : "green"} />
         </div>
 
-        {service.lastError && <p className="mt-3 truncate rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 dark:bg-rose-500/10">{service.lastError}</p>}
-
         {/* Mini 30-day uptime bar */}
         <div className="mt-3">
           <MiniUptimeBar30 logs={logs} />

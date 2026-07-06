@@ -72,7 +72,8 @@ async function checkEndpoint(
   // 1. Durum değiştiyse (UP->DOWN veya DOWN->UP) KESİNLİKLE anında yaz.
   // 2. Durum DOWN ise (200 harici, hata vs.) KESİNLİKLE anında yaz.
   // 3. Arka arkaya 200 (UP) geliyorsa log spamı yapmamak için her 20 denemede 1 yaz.
-  const shouldLog = changed || currentStatus !== "up" || totalChecks % 20 === 0;
+  // 4. EKLENTİ: Servis 200 dönse bile, eğer çok yavaş cevap verdiyse (>1000ms) anında grafiğe yansıt.
+  const shouldLog = changed || currentStatus !== "up" || result.responseTime > 1000 || totalChecks % 20 === 0;
   if (shouldLog) {
     await realtimeRequest("health_logs", {
       method: "POST",
