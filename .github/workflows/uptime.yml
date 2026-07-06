@@ -11,7 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Uptime API
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -X GET "${{ secrets.SITE_URL }}/api/cron/check?interval=1" \
-               -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+          curl -X GET "$SITE_URL/api/cron/check?interval=1" \
+               -H "Authorization: Bearer $CRON_SECRET" \
                -L --fail --silent --show-error
