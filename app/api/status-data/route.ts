@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { HealthEndpoint, HealthLog, Incident, Service, ServiceStatus } from "@/types";
+import { HealthEndpoint, Service, ServiceStatus } from "@/types";
 import { realtimeRequest } from "@/lib/firebase/realtime";
 
 export const dynamic = "force-dynamic";
@@ -16,13 +16,11 @@ function status(value: unknown): ServiceStatus {
 
 export async function GET() {
   try {
-    const data = await realtimeRequest<{
-      health_endpoints?: Record<string, Omit<HealthEndpoint, "id">>;
-      health_logs?: Record<string, Omit<HealthLog, "id">>;
-      incidents?: Record<string, Omit<Incident, "id">>;
-    }>("/");
+    // Dashboard yalnızca küçük health_endpoints düğümünü okur.
+    // health_logs ve incidents ilgili ekranlar açılana kadar indirilmez.
+    const raw = await realtimeRequest<Record<string, Omit<HealthEndpoint, "id">> | null>("health_endpoints");
 
-    const healthEndpoints = values<HealthEndpoint>(data?.health_endpoints).map((endpoint): HealthEndpoint => ({
+    const healthEndpoints = values<HealthEndpoint>(raw).map((endpoint): HealthEndpoint => ({
       ...endpoint,
       name: endpoint.name ?? "Health endpoint",
       ipAddress: endpoint.ipAddress ?? "—",
@@ -63,12 +61,7 @@ export async function GET() {
       createdAt: endpoint.createdAt,
     }));
 
-    const healthLogs = values<HealthLog>(data?.health_logs)
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    const incidents = values<Incident>(data?.incidents)
-      .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-
-    return NextResponse.json({ services, healthLogs, incidents, fetchedAt: new Date().toISOString() });
+    return NextResponse.json({ services, fetchedAt: new Date().toISOString() });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Firebase verileri alınamadı." },
