@@ -15,11 +15,9 @@ export async function GET(request: Request) {
 
   const requestedInterval = Number(new URL(request.url).searchParams.get("interval"));
   if (![1, 5, 10].includes(requestedInterval)) return NextResponse.json({ error: "Geçersiz interval" }, { status: 400 });
-  // Mevcut GitHub Action interval=1 gönderiyor; bu çağrı 5 dakikalık servis grubunu temsil eder.
   const endpointInterval = requestedInterval === 1 ? 5 : requestedInterval;
 
   try {
-    // Cron artık Firebase root'unu ve tüm incidents geçmişini indirmez.
     const endpoints = await realtimeRequest<Stored<HealthEndpoint> | null>("health_endpoints");
     const entries = Object.entries(endpoints ?? {})
       .filter(([, endpoint]) => endpoint.enabled !== false && Number(endpoint.interval) === endpointInterval);
@@ -72,16 +70,25 @@ async function checkEndpoint(endpointId: string, endpoint: Omit<HealthEndpoint, 
 
   const shouldLog = changed || currentStatus !== "up" || result.responseTime > 1000 || totalChecks % 20 === 0;
   if (shouldLog) {
-    await realtimeRequest("health_logs", {
-      method: "POST",
-      body: JSON.stringify({
-        serviceId: endpointId,
-        ...result,
-        transition: changed
-          ? `${String(endpoint.currentStatus).toUpperCase()}_TO_${currentStatus.toUpperCase()}`
-          : currentStatus.toUpperCase(),
+    const logPayload = {
+      serviceId: endpointId,
+      ...result,
+      transition: changed
+        ? `${String(endpoint.currentStatus).toUpperCase()}_TO_${currentStatus.toUpperCase()}`
+        : currentStatus.toUpperCase(),
+    };
+
+    // Legacy listeyi korurken yeni sorguları servis bazlı path'ten çok daha küçük veriyle yap.
+    await Promise.all([
+      realtimeRequest("health_logs", {
+        method: "POST",
+        body: JSON.stringify(logPayload),
       }),
-    });
+      realtimeRequest(`health_logs_by_service/${endpointId}`, {
+        method: "POST",
+        body: JSON.stringify(logPayload),
+      }),
+    ]);
   }
 
   if (!changed) return result;
@@ -98,7 +105,6 @@ async function checkEndpoint(endpointId: string, endpoint: Omit<HealthEndpoint, 
       }),
     });
   } else {
-    // Yalnızca bu servisin son kesintilerini sorgula; tüm incidents ağacını indirme.
     const incidents = await realtimeRequest<Stored<Incident> | null>(
       "incidents",
       undefined,
