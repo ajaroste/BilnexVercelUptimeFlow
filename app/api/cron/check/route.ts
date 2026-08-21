@@ -13,21 +13,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
   }
 
-  const interval = Number(new URL(request.url).searchParams.get("interval"));
-  if (![1, 10].includes(interval)) return NextResponse.json({ error: "Geçersiz interval" }, { status: 400 });
+  const requestedInterval = Number(new URL(request.url).searchParams.get("interval"));
+  if (![1, 5, 10].includes(requestedInterval)) return NextResponse.json({ error: "Geçersiz interval" }, { status: 400 });
+  // Mevcut GitHub Action interval=1 gönderiyor; bu çağrı 5 dakikalık servis grubunu temsil eder.
+  const endpointInterval = requestedInterval === 1 ? 5 : requestedInterval;
 
   try {
     // Cron artık Firebase root'unu ve tüm incidents geçmişini indirmez.
     const endpoints = await realtimeRequest<Stored<HealthEndpoint> | null>("health_endpoints");
     const entries = Object.entries(endpoints ?? {})
-      .filter(([, endpoint]) => endpoint.enabled !== false && Number(endpoint.interval) === interval);
+      .filter(([, endpoint]) => endpoint.enabled !== false && Number(endpoint.interval) === endpointInterval);
 
     const results = await Promise.allSettled(entries.map(([id, endpoint]) => checkEndpoint(id, endpoint)));
 
     return NextResponse.json({
       checked: results.length,
       successful: results.filter(result => result.status === "fulfilled").length,
-      interval,
+      interval: endpointInterval,
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Cron başarısız" }, { status: 500 });
