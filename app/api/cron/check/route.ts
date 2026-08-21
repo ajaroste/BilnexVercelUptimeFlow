@@ -12,19 +12,18 @@ export async function GET(request: Request) {
   if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
   }
+
   const interval = Number(new URL(request.url).searchParams.get("interval"));
   if (![1, 10].includes(interval)) return NextResponse.json({ error: "Geçersiz interval" }, { status: 400 });
 
   try {
-    const data = await realtimeRequest<{
-      health_endpoints?: Stored<HealthEndpoint>;
-      incidents?: Stored<Incident>;
-    }>("/");
-    const entries = Object.entries(data?.health_endpoints ?? {})
+    // Cron artık Firebase root'unu ve tüm incidents geçmişini indirmez.
+    const endpoints = await realtimeRequest<Stored<HealthEndpoint> | null>("health_endpoints");
+    const entries = Object.entries(endpoints ?? {})
       .filter(([, endpoint]) => endpoint.enabled !== false && Number(endpoint.interval) === interval);
-    const results = await Promise.allSettled(
-      entries.map(([id, endpoint]) => checkEndpoint(id, endpoint, data.incidents ?? {})),
-    );
+
+    const results = await Promise.allSettled(entries.map(([id, endpoint]) => checkEndpoint(id, endpoint)));
+
     return NextResponse.json({
       checked: results.length,
       successful: results.filter(result => result.status === "fulfilled").length,
@@ -35,14 +34,9 @@ export async function GET(request: Request) {
   }
 }
 
-async function checkEndpoint(
-  endpointId: string,
-  endpoint: Omit<HealthEndpoint, "id">,
-  incidents: Stored<Incident>,
-) {
+async function checkEndpoint(endpointId: string, endpoint: Omit<HealthEndpoint, "id">) {
   const result = await performHealthCheck(endpoint.endpoint);
-  
-  // ECONNRESET hatasını Firebase'e hiçbir şekilde yansıtma (Pas geç)
+
   if (result.error && result.error.includes("ECONNRESET")) {
     return result;
   }
@@ -74,11 +68,6 @@ async function checkEndpoint(
     }),
   });
 
-  // health_logs:
-  // 1. Durum değiştiyse (UP->DOWN veya DOWN->UP) KESİNLİKLE anında yaz.
-  // 2. Durum DOWN ise (200 harici, hata vs.) KESİNLİKLE anında yaz.
-  // 3. Arka arkaya 200 (UP) geliyorsa log spamı yapmamak için her 20 denemede 1 yaz.
-  // 4. EKLENTİ: Servis 200 dönse bile, eğer çok yavaş cevap verdiyse (>1000ms) anında grafiğe yansıt.
   const shouldLog = changed || currentStatus !== "up" || result.responseTime > 1000 || totalChecks % 20 === 0;
   if (shouldLog) {
     await realtimeRequest("health_logs", {
@@ -93,7 +82,6 @@ async function checkEndpoint(
     });
   }
 
-  // Incident: sadece durum değişiminde işlem yap
   if (!changed) return result;
 
   if (currentStatus === "down") {
@@ -108,8 +96,16 @@ async function checkEndpoint(
       }),
     });
   } else {
-    const openIncident = Object.entries(incidents)
-      .find(([, incident]) => incident.serviceId === endpointId && !incident.endTime);
+    // Yalnızca bu servisin son kesintilerini sorgula; tüm incidents ağacını indirme.
+    const incidents = await realtimeRequest<Stored<Incident> | null>(
+      "incidents",
+      undefined,
+      { orderBy: "serviceId", equalTo: endpointId, limitToLast: 20 },
+    );
+    const openIncident = Object.entries(incidents ?? {})
+      .sort(([, a], [, b]) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+      .find(([, incident]) => !incident.endTime);
+
     if (openIncident) {
       const [incidentId, incident] = openIncident;
       await realtimeRequest(`incidents/${incidentId}`, {
@@ -125,5 +121,6 @@ async function checkEndpoint(
   await sendTelegramNotification(currentStatus === "down"
     ? `🔴 <b>${endpoint.name} DOWN</b>\n${endpoint.endpoint}\n${result.error ?? "Bağlantı hatası"}`
     : `🟢 <b>${endpoint.name} tekrar UP</b>\n${endpoint.endpoint}\nYanıt: ${result.responseTime} ms`);
+
   return result;
 }
