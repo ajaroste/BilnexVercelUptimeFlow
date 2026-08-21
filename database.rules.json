@@ -1,0 +1,12 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "health_logs": {
+      ".indexOn": ["timestamp", "serviceId"]
+    },
+    "incidents": {
+      ".indexOn": ["startTime", "serviceId"]
+    }
+  }
+}
