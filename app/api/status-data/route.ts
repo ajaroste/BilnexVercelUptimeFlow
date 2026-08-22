@@ -16,8 +16,6 @@ function status(value: unknown): ServiceStatus {
 
 export async function GET() {
   try {
-    // Dashboard yalnızca küçük health_endpoints düğümünü okur.
-    // health_logs ve incidents ilgili ekranlar açılana kadar indirilmez.
     const raw = await realtimeRequest<Record<string, Omit<HealthEndpoint, "id">> | null>("health_endpoints");
 
     const healthEndpoints = values<HealthEndpoint>(raw).map((endpoint): HealthEndpoint => ({
@@ -40,6 +38,10 @@ export async function GET() {
       avgResponseTime: Number(endpoint.avgResponseTime ?? 0),
       tags: Array.isArray(endpoint.tags) ? endpoint.tags : [],
       createdAt: endpoint.createdAt ?? "",
+      dnsStatus: endpoint.dnsStatus ?? (endpoint.dnsMonitoring?.enabled ? "ok" : "disabled"),
+      sslStatus: endpoint.sslStatus ?? (endpoint.sslMonitoring?.enabled ? "ok" : "disabled"),
+      sslDaysRemaining: endpoint.sslDaysRemaining ?? null,
+      locationStatus: endpoint.locationStatus ?? (endpoint.multiLocationMonitoring?.enabled ? "ok" : "disabled"),
     }));
 
     const services: Service[] = healthEndpoints.map((endpoint) => ({
@@ -59,6 +61,14 @@ export async function GET() {
       avgResponseTime: endpoint.avgResponseTime,
       tags: endpoint.tags,
       createdAt: endpoint.createdAt,
+      dnsMonitoring: endpoint.dnsMonitoring,
+      sslMonitoring: endpoint.sslMonitoring,
+      multiLocationMonitoring: endpoint.multiLocationMonitoring,
+      telegram: endpoint.telegram,
+      dnsStatus: endpoint.dnsStatus,
+      sslStatus: endpoint.sslStatus,
+      sslDaysRemaining: endpoint.sslDaysRemaining,
+      locationStatus: endpoint.locationStatus,
     }));
 
     return NextResponse.json({ services, fetchedAt: new Date().toISOString() });
