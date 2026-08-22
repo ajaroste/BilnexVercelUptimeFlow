@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { performHealthCheck } from "@/lib/health-check";
+import { performDnsCheck, performMultiLocationChecks, performSslCheck } from "@/lib/monitoring-extras";
 import { realtimeRequest } from "@/lib/firebase/realtime";
 import { sendTelegramNotification } from "@/lib/telegram";
 import { HealthEndpoint, Incident } from "@/types";
@@ -35,11 +36,43 @@ export async function GET(request: Request) {
 }
 
 async function checkEndpoint(endpointId: string, endpoint: Omit<HealthEndpoint, "id">) {
-  const result = await performHealthCheck(endpoint.endpoint);
+  const primaryResult = await performHealthCheck(endpoint.endpoint);
+  const remoteOnly = endpoint.multiLocationMonitoring?.enabled === true && endpoint.multiLocationMonitoring.includePrimaryLocation === false;
 
-  if (result.error && result.error.includes("ECONNRESET")) {
-    return result;
+  if (primaryResult.error?.includes("ECONNRESET") && !remoteOnly) return primaryResult;
+
+  const [dns, ssl, locations] = await Promise.all([
+    performDnsCheck(endpoint.endpoint, endpoint.dnsMonitoring),
+    performSslCheck(endpoint.endpoint, endpoint.sslMonitoring),
+    performMultiLocationChecks(endpoint.endpoint, endpoint.multiLocationMonitoring, primaryResult),
+  ]);
+
+  const effectiveResult = remoteOnly && locations.enabled
+    ? locationAggregateResult(locations, primaryResult.timestamp)
+    : primaryResult;
+
+  let success = effectiveResult.success;
+  const errors: string[] = [];
+  if (effectiveResult.error) errors.push(effectiveResult.error);
+
+  if (endpoint.dnsMonitoring?.enabled && endpoint.dnsMonitoring.affectsStatus && !dns.success) {
+    success = false;
+    if (dns.error) errors.push(`DNS: ${dns.error}`);
   }
+  if (endpoint.sslMonitoring?.enabled && endpoint.sslMonitoring.affectsStatus && !ssl.success) {
+    success = false;
+    if (ssl.error) errors.push(`SSL: ${ssl.error}`);
+  }
+  if (!remoteOnly && endpoint.multiLocationMonitoring?.enabled && endpoint.multiLocationMonitoring.affectsStatus && !locations.success) {
+    success = false;
+    if (locations.error) errors.push(`Konum: ${locations.error}`);
+  }
+
+  const result = {
+    ...effectiveResult,
+    success,
+    error: errors.length ? errors.join(" | ") : null,
+  };
 
   const currentStatus = result.success ? "up" : "down";
   const changed = endpoint.currentStatus !== currentStatus;
@@ -52,20 +85,72 @@ async function checkEndpoint(endpointId: string, endpoint: Omit<HealthEndpoint, 
   const successfulChecks = Number(counters.successfulChecks ?? 0) + (result.success ? 1 : 0);
   const totalResponseTime = Number(counters.totalResponseTime ?? 0) + result.responseTime;
 
+  const dnsStatus = !endpoint.dnsMonitoring?.enabled ? "disabled" : dns.success ? "ok" : "error";
+  const sslStatus = !endpoint.sslMonitoring?.enabled ? "disabled" : !ssl.success ? "error" : ssl.warning ? "warning" : "ok";
+  const locationStatus = !endpoint.multiLocationMonitoring?.enabled ? "disabled" : locations.success ? "ok" : "error";
+
+  const patch: Record<string, unknown> = {
+    currentStatus,
+    lastChecked: result.timestamp,
+    responseTime: result.responseTime,
+    statusCode: result.statusCode,
+    error: result.error,
+    totalChecks,
+    successfulChecks,
+    totalResponseTime,
+    uptime24h: Number(((successfulChecks / totalChecks) * 100).toFixed(2)),
+    avgResponseTime: Math.round(totalResponseTime / totalChecks),
+    dnsStatus,
+    dnsAddresses: dns.addresses,
+    dnsError: dns.error,
+    sslStatus,
+    sslDaysRemaining: ssl.daysRemaining,
+    sslValidTo: ssl.validTo,
+    sslError: ssl.error,
+    locationStatus,
+    locationResults: locations.results,
+  };
+
+  const telegram = endpoint.telegram;
+  const telegramEnabled = telegram?.enabled !== false;
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (telegramEnabled && endpoint.dnsMonitoring?.enabled && telegram?.notifyOnDns !== false) {
+    const dnsState = dns.success ? "ok" : "error";
+    if (endpoint.lastDnsNotificationState !== dnsState) {
+      await sendTelegramNotification(dns.success
+        ? `🟢 <b>${endpoint.name} DNS tekrar normal</b>\n${dns.addresses.join(", ")}`
+        : `🟠 <b>${endpoint.name} DNS sorunu</b>\n${dns.error ?? "DNS çözümlenemedi"}`);
+      patch.lastDnsNotificationState = dnsState;
+    }
+  }
+
+  if (telegramEnabled && endpoint.sslMonitoring?.enabled && telegram?.notifyOnSsl !== false) {
+    if (!ssl.success) {
+      if (endpoint.lastSslNotificationDate !== today) {
+        await sendTelegramNotification(`🔐 <b>${endpoint.name} SSL HATASI</b>\n${ssl.error ?? "Sertifika doğrulanamadı"}`);
+        patch.lastSslNotificationDate = today;
+      }
+    } else if (ssl.warning && endpoint.lastSslNotificationDate !== today) {
+      await sendTelegramNotification(`⚠️ <b>${endpoint.name} SSL süresi yaklaşıyor</b>\nKalan: ${ssl.daysRemaining} gün\nBitiş: ${ssl.validTo ?? "—"}`);
+      patch.lastSslNotificationDate = today;
+    }
+  }
+
+  if (telegramEnabled && endpoint.multiLocationMonitoring?.enabled && telegram?.notifyOnLocation !== false) {
+    const locationState = locations.success ? "ok" : "error";
+    if (endpoint.lastLocationNotificationState !== locationState) {
+      const summary = locations.results.map(item => `${item.success ? "✅" : "❌"} ${item.name}${item.responseTime !== null ? ` (${item.responseTime} ms)` : ""}`).join("\n");
+      await sendTelegramNotification(locations.success
+        ? `🌍 <b>${endpoint.name} konum kontrolleri normal</b>\n${summary}`
+        : `🌍 <b>${endpoint.name} konum problemi</b>\n${summary}`);
+      patch.lastLocationNotificationState = locationState;
+    }
+  }
+
   await realtimeRequest(`health_endpoints/${endpointId}`, {
     method: "PATCH",
-    body: JSON.stringify({
-      currentStatus,
-      lastChecked: result.timestamp,
-      responseTime: result.responseTime,
-      statusCode: result.statusCode,
-      error: result.error,
-      totalChecks,
-      successfulChecks,
-      totalResponseTime,
-      uptime24h: Number(((successfulChecks / totalChecks) * 100).toFixed(2)),
-      avgResponseTime: Math.round(totalResponseTime / totalChecks),
-    }),
+    body: JSON.stringify(patch),
   });
 
   const shouldLog = changed || currentStatus !== "up" || result.responseTime > 1000 || totalChecks % 20 === 0;
@@ -73,62 +158,83 @@ async function checkEndpoint(endpointId: string, endpoint: Omit<HealthEndpoint, 
     const logPayload = {
       serviceId: endpointId,
       ...result,
+      dnsStatus,
+      sslStatus,
+      sslDaysRemaining: ssl.daysRemaining,
+      locationStatus,
       transition: changed
         ? `${String(endpoint.currentStatus).toUpperCase()}_TO_${currentStatus.toUpperCase()}`
         : currentStatus.toUpperCase(),
     };
 
-    // Legacy listeyi korurken yeni sorguları servis bazlı path'ten çok daha küçük veriyle yap.
     await Promise.all([
-      realtimeRequest("health_logs", {
-        method: "POST",
-        body: JSON.stringify(logPayload),
-      }),
-      realtimeRequest(`health_logs_by_service/${endpointId}`, {
-        method: "POST",
-        body: JSON.stringify(logPayload),
-      }),
+      realtimeRequest("health_logs", { method: "POST", body: JSON.stringify(logPayload) }),
+      realtimeRequest(`health_logs_by_service/${endpointId}`, { method: "POST", body: JSON.stringify(logPayload) }),
     ]);
   }
 
-  if (!changed) return result;
-
-  if (currentStatus === "down") {
-    await realtimeRequest("incidents", {
-      method: "POST",
-      body: JSON.stringify({
-        serviceId: endpointId,
-        startTime: result.timestamp,
-        endTime: null,
-        duration: null,
-        reason: result.error ?? "Servis yanıt vermiyor",
-      }),
-    });
-  } else {
-    const incidents = await realtimeRequest<Stored<Incident> | null>(
-      "incidents",
-      undefined,
-      { orderBy: "serviceId", equalTo: endpointId, limitToLast: 20 },
-    );
-    const openIncident = Object.entries(incidents ?? {})
-      .sort(([, a], [, b]) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
-      .find(([, incident]) => !incident.endTime);
-
-    if (openIncident) {
-      const [incidentId, incident] = openIncident;
-      await realtimeRequest(`incidents/${incidentId}`, {
-        method: "PATCH",
+  if (changed) {
+    if (currentStatus === "down") {
+      await realtimeRequest("incidents", {
+        method: "POST",
         body: JSON.stringify({
-          endTime: result.timestamp,
-          duration: Math.round((Date.now() - new Date(incident.startTime).getTime()) / 1000),
+          serviceId: endpointId,
+          startTime: result.timestamp,
+          endTime: null,
+          duration: null,
+          reason: result.error ?? "Servis yanıt vermiyor",
         }),
       });
+    } else {
+      const incidents = await realtimeRequest<Stored<Incident> | null>(
+        "incidents",
+        undefined,
+        { orderBy: "serviceId", equalTo: endpointId, limitToLast: 20 },
+      );
+      const openIncident = Object.entries(incidents ?? {})
+        .sort(([, a], [, b]) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+        .find(([, incident]) => !incident.endTime);
+
+      if (openIncident) {
+        const [incidentId, incident] = openIncident;
+        await realtimeRequest(`incidents/${incidentId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            endTime: result.timestamp,
+            duration: Math.round((Date.now() - new Date(incident.startTime).getTime()) / 1000),
+          }),
+        });
+      }
+    }
+
+    if (telegramEnabled) {
+      if (currentStatus === "down" && telegram?.notifyOnDown !== false) {
+        await sendTelegramNotification(`🔴 <b>${endpoint.name} DOWN</b>\n${endpoint.endpoint}\n${result.error ?? "Bağlantı hatası"}`);
+      }
+      if (currentStatus === "up" && telegram?.notifyOnRecovery !== false) {
+        await sendTelegramNotification(`🟢 <b>${endpoint.name} tekrar UP</b>\n${endpoint.endpoint}\nYanıt: ${result.responseTime} ms`);
+      }
     }
   }
 
-  await sendTelegramNotification(currentStatus === "down"
-    ? `🔴 <b>${endpoint.name} DOWN</b>\n${endpoint.endpoint}\n${result.error ?? "Bağlantı hatası"}`
-    : `🟢 <b>${endpoint.name} tekrar UP</b>\n${endpoint.endpoint}\nYanıt: ${result.responseTime} ms`);
+  return { result, dns, ssl, locations };
+}
 
-  return result;
+function locationAggregateResult(
+  locations: Awaited<ReturnType<typeof performMultiLocationChecks>>,
+  timestamp: string,
+) {
+  const successful = locations.results.filter(item => item.success);
+  const responseTime = successful.length
+    ? Math.round(successful.reduce((sum, item) => sum + (item.responseTime ?? 0), 0) / successful.length)
+    : Math.max(0, ...locations.results.map(item => item.responseTime ?? 0));
+  const first = successful[0] ?? locations.results[0];
+  return {
+    success: locations.success,
+    statusCode: first?.statusCode ?? null,
+    responseTime,
+    response: "",
+    error: locations.error,
+    timestamp,
+  };
 }
