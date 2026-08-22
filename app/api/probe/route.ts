@@ -5,8 +5,12 @@ export const maxDuration = 20;
 
 export async function POST(request: Request) {
   const secret = process.env.MULTI_LOCATION_PROBE_SECRET;
+  if (!secret) {
+    return NextResponse.json({ error: "Probe servisi yapılandırılmamış" }, { status: 503 });
+  }
+
   const auth = request.headers.get("authorization");
-  if (secret && auth !== `Bearer ${secret}`) {
+  if (auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Yetkisiz probe isteği" }, { status: 401 });
   }
 
