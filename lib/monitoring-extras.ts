@@ -1,5 +1,5 @@
 import { resolve4, resolve6 } from "node:dns/promises";
-import tls from "node:tls";
+import { connect } from "node:tls";
 import { DnsMonitoringConfig, MonitoringProbe, MultiLocationMonitoringConfig, SslMonitoringConfig } from "@/types";
 
 export type BasicCheckResult = {
@@ -9,6 +9,15 @@ export type BasicCheckResult = {
   response: string;
   error: string | null;
   timestamp: string;
+};
+
+type SslCheckResult = {
+  enabled: boolean;
+  success: boolean;
+  warning: boolean;
+  daysRemaining: number | null;
+  validTo: string | null;
+  error: string | null;
 };
 
 export async function performDnsCheck(target: string, config?: DnsMonitoringConfig) {
@@ -40,18 +49,21 @@ export async function performDnsCheck(target: string, config?: DnsMonitoringConf
   }
 }
 
-export async function performSslCheck(target: string, config?: SslMonitoringConfig) {
-  if (!config?.enabled) return { enabled: false as const, success: true, warning: false, daysRemaining: null as number | null, validTo: null as string | null, error: null as string | null };
+export async function performSslCheck(target: string, config?: SslMonitoringConfig): Promise<SslCheckResult> {
+  if (!config?.enabled) return { enabled: false, success: true, warning: false, daysRemaining: null, validTo: null, error: null };
 
   const url = new URL(target);
   if (url.protocol !== "https:") {
-    return { enabled: true as const, success: false, warning: false, daysRemaining: null, validTo: null, error: "SSL kontrolü yalnızca HTTPS servislerde kullanılabilir" };
+    return { enabled: true, success: false, warning: false, daysRemaining: null, validTo: null, error: "SSL kontrolü yalnızca HTTPS servislerde kullanılabilir" };
   }
 
   const port = Number(url.port || 443);
-  return new Promise(resolve => {
-    const socket = tls.connect({ host: url.hostname, port, servername: url.hostname, rejectUnauthorized: true });
-    const finish = (result: ReturnType<typeof sslResult>) => {
+  return new Promise<SslCheckResult>(resolve => {
+    const socket = connect({ host: url.hostname, port, servername: url.hostname, rejectUnauthorized: true });
+    let completed = false;
+    const finish = (result: SslCheckResult) => {
+      if (completed) return;
+      completed = true;
       socket.destroy();
       resolve(result);
     };
@@ -71,8 +83,8 @@ export async function performSslCheck(target: string, config?: SslMonitoringConf
   });
 }
 
-function sslResult(success: boolean, warning: boolean, daysRemaining: number | null, validTo: string | null, error: string | null) {
-  return { enabled: true as const, success, warning, daysRemaining, validTo, error };
+function sslResult(success: boolean, warning: boolean, daysRemaining: number | null, validTo: string | null, error: string | null): SslCheckResult {
+  return { enabled: true, success, warning, daysRemaining, validTo, error };
 }
 
 export async function performMultiLocationChecks(target: string, config?: MultiLocationMonitoringConfig, primaryResult?: BasicCheckResult) {
@@ -94,8 +106,7 @@ export async function performMultiLocationChecks(target: string, config?: MultiL
     });
   }
 
-  const remoteResults = await Promise.all(enabledProbes.map(probe => runProbe(probe, target)));
-  results.push(...remoteResults);
+  results.push(...await Promise.all(enabledProbes.map(probe => runProbe(probe, target))));
 
   if (!results.length) {
     return { enabled: true as const, success: false, results, successfulLocations: 0, requiredLocations: 1, error: "Multi-location açık ancak aktif probe tanımlı değil" };
