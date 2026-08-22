@@ -60,12 +60,19 @@ function normalizeSsl(config?: SslMonitoringConfig): SslMonitoringConfig {
 
 function normalizeLocations(config?: MultiLocationMonitoringConfig): MultiLocationMonitoringConfig {
   const probes = Array.isArray(config?.probes) ? config.probes.slice(0, 10).map((probe, index) => {
-    const url = new URL(String(probe.url));
-    if (url.protocol !== "https:") throw new Error("Probe URL'leri HTTPS olmalıdır.");
+    const rawUrl = String(probe.url).trim();
+    let normalizedUrl: string;
+    if (rawUrl === "/api/probe/eu" || rawUrl === "/api/probe/us") {
+      normalizedUrl = rawUrl;
+    } else {
+      const url = new URL(rawUrl);
+      if (url.protocol !== "https:") throw new Error("Probe URL'leri HTTPS olmalıdır.");
+      normalizedUrl = url.toString();
+    }
     return {
       id: String(probe.id || `probe-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 50),
       name: String(probe.name || `Probe ${index + 1}`).slice(0, 80),
-      url: url.toString(),
+      url: normalizedUrl,
       enabled: probe.enabled !== false,
     };
   }) : [];
