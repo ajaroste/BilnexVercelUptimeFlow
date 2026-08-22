@@ -5,6 +5,7 @@ import { ArrowLeft, CheckCircle2, Clock3, Gauge, RefreshCw, ShieldCheck, Trendin
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { MonitoringSettings } from "@/components/monitoring-settings";
 import { useServices } from "@/components/service-provider";
 import { ResponseChart } from "@/components/response-chart";
 import { formatRelativeDate } from "@/lib/utils";
@@ -25,7 +26,7 @@ function uptimeBadge(pct: number) {
 
 export default function ServiceDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { services, loading } = useServices();
+  const { services, loading, refetch } = useServices();
   const [logs, setLogs] = useState<HealthLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
   const [logsError, setLogsError] = useState<string | null>(null);
@@ -87,7 +88,12 @@ export default function ServiceDetail({ params }: { params: Promise<{ id: string
         <UptimeBadge label="7 günlük" value={service.uptime7d} />
         <UptimeBadge label="30 günlük" value={service.uptime30d} />
         <UptimeBadge label="Genel" value={service.uptime24h} icon={TrendingUp} />
+        <MonitorBadge label="DNS" status={service.dnsStatus} />
+        <MonitorBadge label="SSL" status={service.sslStatus} suffix={service.sslDaysRemaining != null ? `${service.sslDaysRemaining}g` : undefined} />
+        <MonitorBadge label="Konum" status={service.locationStatus} />
       </div>
+
+      <MonitoringSettings service={service} onSaved={refetch} />
 
       {logsError && <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300">{logsError}</div>}
       {logsLoading && <div className="card mt-5 grid min-h-32 place-items-center"><RefreshCw className="size-5 animate-spin text-brand-500" /></div>}
@@ -132,4 +138,9 @@ function MiniStat({ icon: Icon, label, value, valueClass }: { icon: typeof Gauge
 
 function UptimeBadge({ label, value, icon: Icon }: { label: string; value: number; icon?: typeof TrendingUp }) {
   return <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold ${uptimeBadge(value)}`}>{Icon && <Icon className="size-3" />}{label}: %{value.toFixed(2)}</span>;
+}
+
+function MonitorBadge({ label, status, suffix }: { label: string; status?: "ok" | "warning" | "error" | "disabled"; suffix?: string }) {
+  const cls = status === "ok" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10" : status === "warning" ? "bg-amber-50 text-amber-600 dark:bg-amber-500/10" : status === "error" ? "bg-rose-50 text-rose-600 dark:bg-rose-500/10" : "bg-slate-100 text-slate-400 dark:bg-slate-800";
+  return <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${cls}`}>{label}: {status === "disabled" || !status ? "Kapalı" : status.toUpperCase()}{suffix ? ` · ${suffix}` : ""}</span>;
 }
