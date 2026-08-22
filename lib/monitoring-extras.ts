@@ -143,8 +143,9 @@ async function runProbe(probe: MonitoringProbe, target: string): Promise<Locatio
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     const secret = process.env.MULTI_LOCATION_PROBE_SECRET;
     if (secret) headers.Authorization = `Bearer ${secret}`;
+    const probeUrl = resolveProbeUrl(probe.url);
 
-    const response = await fetch(probe.url, {
+    const response = await fetch(probeUrl, {
       method: "POST",
       headers,
       body: JSON.stringify({ target }),
@@ -170,4 +171,11 @@ async function runProbe(probe: MonitoringProbe, target: string): Promise<Locatio
       error: error instanceof Error ? error.message : "Probe isteği başarısız",
     };
   }
+}
+
+function resolveProbeUrl(value: string) {
+  if (!value.startsWith("/")) return value;
+  const host = process.env.VERCEL_URL || process.env.NEXT_PUBLIC_BASE_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (!host) throw new Error("Relative probe URL için VERCEL_URL veya NEXT_PUBLIC_BASE_URL gerekli");
+  return `https://${host}${value}`;
 }
