@@ -12,6 +12,11 @@
     },
     "incidents": {
       ".indexOn": ["startTime", "serviceId"]
+    },
+    "incidents_by_service": {
+      "$serviceId": {
+        ".indexOn": ["startTime"]
+      }
     }
   }
 }
