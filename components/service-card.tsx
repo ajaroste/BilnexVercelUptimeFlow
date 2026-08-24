@@ -2,11 +2,9 @@
 
 import { Clock3 } from "lucide-react";
 import Link from "next/link";
-import { Service, HealthLog } from "@/types";
+import { Service } from "@/types";
 import { formatRelativeDate } from "@/lib/utils";
-import { MiniUptimeBar30 } from "@/components/uptime-bar";
 
-/** Response time → text colour */
 function responseColor(ms: number | null): string {
   if (ms === null) return "";
   if (ms < 200) return "text-emerald-600 dark:text-emerald-400";
@@ -14,9 +12,10 @@ function responseColor(ms: number | null): string {
   return "text-rose-500 dark:text-rose-400";
 }
 
-export function ServiceCard({ service, logs }: { service: Service; logs: HealthLog[] }) {
+export function ServiceCard({ service }: { service: Service }) {
   const isUp = service.currentStatus === "up";
   const isDown = service.currentStatus === "down";
+
   return (
     <article className="card group overflow-hidden">
       <div className={`h-1 ${isUp ? "bg-brand-400" : isDown ? "bg-rose-500" : "bg-slate-300"}`} />
@@ -29,18 +28,9 @@ export function ServiceCard({ service, logs }: { service: Service; logs: HealthL
         </div>
 
         <div className="mt-4 grid grid-cols-3 gap-2 border-y py-3 text-center">
-          <Metric
-            value={service.lastResponseTime ? `${service.lastResponseTime} ms` : "—"}
-            label="Yanıt"
-            valueClass={responseColor(service.lastResponseTime)}
-          />
+          <Metric value={service.lastResponseTime ? `${service.lastResponseTime} ms` : "—"} label="Yanıt" valueClass={responseColor(service.lastResponseTime)} />
           <Metric value={service.lastStatusCode ?? "—"} label="HTTP" />
           <Metric value={`%${service.uptime24h.toFixed(2)}`} label="24s uptime" accent={isDown ? "red" : "green"} />
-        </div>
-
-        {/* Mini 30-day uptime bar */}
-        <div className="mt-3">
-          <MiniUptimeBar30 logs={logs} />
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-3">

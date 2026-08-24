@@ -18,14 +18,40 @@
       "uptime30d": 100,
       "avgResponseTime": 0,
       "tags": ["production", "web"],
+      "dnsMonitoring": {
+        "enabled": true,
+        "affectsStatus": false,
+        "expectedAddresses": [],
+        "requireAllExpected": false
+      },
+      "sslMonitoring": {
+        "enabled": true,
+        "affectsStatus": false,
+        "warnDays": 14
+      },
+      "multiLocationMonitoring": {
+        "enabled": false,
+        "affectsStatus": true,
+        "includePrimaryLocation": true,
+        "minimumSuccessfulLocations": 1,
+        "probes": []
+      },
+      "telegram": {
+        "enabled": true,
+        "notifyOnDown": true,
+        "notifyOnRecovery": true,
+        "notifyOnDns": true,
+        "notifyOnSsl": true,
+        "notifyOnLocation": true
+      },
       "createdAt": "2026-07-03T09:00:00.000Z"
     },
     "bilnex-api": {
       "name": "Bilnex API",
       "ipAddress": "203.0.113.20",
-      "endpoint": "https://api.bilnex.com/health",
-      "port": 443,
-      "protocol": "https",
+      "endpoint": "http://api.example.com/health",
+      "port": 80,
+      "protocol": "http",
       "interval": 5,
       "enabled": true,
       "currentStatus": "pending",
@@ -38,6 +64,37 @@
       "uptime30d": 100,
       "avgResponseTime": 0,
       "tags": ["production", "api"],
+      "dnsMonitoring": {
+        "enabled": true,
+        "affectsStatus": true
+      },
+      "sslMonitoring": {
+        "enabled": false,
+        "affectsStatus": false,
+        "warnDays": 14
+      },
+      "multiLocationMonitoring": {
+        "enabled": true,
+        "affectsStatus": true,
+        "includePrimaryLocation": false,
+        "minimumSuccessfulLocations": 1,
+        "probes": [
+          {
+            "id": "eu",
+            "name": "Europe Probe",
+            "url": "https://eu-probe.example.com/api/probe",
+            "enabled": true
+          }
+        ]
+      },
+      "telegram": {
+        "enabled": true,
+        "notifyOnDown": true,
+        "notifyOnRecovery": true,
+        "notifyOnDns": true,
+        "notifyOnSsl": false,
+        "notifyOnLocation": true
+      },
       "createdAt": "2026-07-03T09:00:00.000Z"
     }
   }

@@ -23,7 +23,7 @@ export async function performHealthCheck(input: string) {
   try {
     const response = await fetch(url, {
       method: "GET",
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(10_000),
       redirect: "follow",
       headers: { "User-Agent": "Pulse-Uptime-Monitor/1.0", Accept: "*/*" },
       cache: "no-store",
@@ -40,7 +40,7 @@ export async function performHealthCheck(input: string) {
   } catch (error) {
     let message = "Bilinmeyen bağlantı hatası";
     if (error instanceof Error) {
-      if (error.name === "TimeoutError") message = "İstek 5 saniye içinde yanıt vermedi";
+      if (error.name === "TimeoutError") message = "İstek 10 saniye içinde yanıt vermedi";
       else {
         // Node.js fetch hatalarında asıl sebep error.cause içindedir
         const cause = (error as any).cause;
