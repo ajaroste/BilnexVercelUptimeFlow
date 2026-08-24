@@ -40,22 +40,22 @@ export async function GET(request: Request) {
     const requestedLimit = Number(url.searchParams.get("limit") || 500);
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 2000) : 500;
 
-    let raw: StoredLog | null = null;
+    let raw: StoredLog | null;
 
     if (serviceId !== "all") {
-      // Yeni veri modeli: doğrudan ilgili servisin log path'ini sorgula.
+      // Servis detayları doğrudan servis-özel path'i sorgular. Boş sonuç normaldir;
+      // otomatik global fallback yapmak, veri olmayan her açılışta global health_logs indirirdi.
       raw = await queryLogs(`health_logs_by_service/${serviceId}`, from, to, limit);
 
-      // Geçiş döneminde eski kayıtlar yalnızca legacy health_logs altında olabilir.
-      // Yeni path boşsa tarih-limitli legacy sorguya geri düş.
-      if (!raw || Object.keys(raw).length === 0) {
+      // Eski kayıtlar gerekiyorsa geçici olarak env ile legacy fallback açılabilir.
+      if ((!raw || Object.keys(raw).length === 0) && process.env.ENABLE_LEGACY_HEALTH_LOG_FALLBACK === "true") {
         const legacy = await queryLogs("health_logs", from, to, limit);
         raw = Object.fromEntries(
           Object.entries(legacy ?? {}).filter(([, log]) => log.serviceId === serviceId),
         );
       }
     } else {
-      // "all" sorgusu yalnızca gerektiğinde legacy path üzerinden sınırlı şekilde çalışır.
+      // Tüm servis logları yalnızca kullanıcı gerçekten "all" istediğinde okunur.
       raw = await queryLogs("health_logs", from, to, limit);
     }
 
