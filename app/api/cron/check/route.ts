@@ -8,6 +8,8 @@ import { HealthEndpoint, Incident } from "@/types";
 export const maxDuration = 60;
 type Stored<T> = Record<string, Omit<T, "id">>;
 
+type FirebasePostResult = { name: string };
+
 export async function GET(request: Request) {
   const auth = request.headers.get("authorization");
   if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -175,35 +177,63 @@ async function checkEndpoint(endpointId: string, endpoint: Omit<HealthEndpoint, 
 
   if (changed) {
     if (currentStatus === "down") {
-      await realtimeRequest("incidents", {
+      const incidentPayload = {
+        serviceId: endpointId,
+        startTime: result.timestamp,
+        endTime: null,
+        duration: null,
+        reason: result.error ?? "Servis yanıt vermiyor",
+      };
+
+      // Global listeyi korurken aynı incident ID ile servis-özel path'e de yaz.
+      const created = await realtimeRequest<FirebasePostResult>("incidents", {
         method: "POST",
-        body: JSON.stringify({
-          serviceId: endpointId,
-          startTime: result.timestamp,
-          endTime: null,
-          duration: null,
-          reason: result.error ?? "Servis yanıt vermiyor",
-        }),
+        body: JSON.stringify(incidentPayload),
+      });
+      await realtimeRequest(`incidents_by_service/${endpointId}/${created.name}`, {
+        method: "PUT",
+        body: JSON.stringify(incidentPayload),
       });
     } else {
-      const incidents = await realtimeRequest<Stored<Incident> | null>(
-        "incidents",
+      // Önce küçük servis-özel path'e bak. Geçiş öncesi açık incident varsa yalnızca
+      // recovery anında indexli global serviceId sorgusuna geri düş.
+      let incidents = await realtimeRequest<Stored<Incident> | null>(
+        `incidents_by_service/${endpointId}`,
         undefined,
-        { orderBy: "serviceId", equalTo: endpointId, limitToLast: 20 },
+        { orderBy: "startTime", limitToLast: 20 },
       );
+      let fromLegacy = false;
+
+      if (!incidents || Object.keys(incidents).length === 0) {
+        incidents = await realtimeRequest<Stored<Incident> | null>(
+          "incidents",
+          undefined,
+          { orderBy: "serviceId", equalTo: endpointId, limitToLast: 20 },
+        );
+        fromLegacy = true;
+      }
+
       const openIncident = Object.entries(incidents ?? {})
         .sort(([, a], [, b]) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
         .find(([, incident]) => !incident.endTime);
 
       if (openIncident) {
         const [incidentId, incident] = openIncident;
-        await realtimeRequest(`incidents/${incidentId}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            endTime: result.timestamp,
-            duration: Math.round((Date.now() - new Date(incident.startTime).getTime()) / 1000),
+        const closePatch = {
+          endTime: result.timestamp,
+          duration: Math.round((Date.now() - new Date(incident.startTime).getTime()) / 1000),
+        };
+
+        await Promise.all([
+          realtimeRequest(`incidents/${incidentId}`, {
+            method: "PATCH",
+            body: JSON.stringify(closePatch),
           }),
-        });
+          realtimeRequest(`incidents_by_service/${endpointId}/${incidentId}`, {
+            method: fromLegacy ? "PUT" : "PATCH",
+            body: JSON.stringify(fromLegacy ? { ...incident, ...closePatch } : closePatch),
+          }),
+        ]);
       }
     }
 
