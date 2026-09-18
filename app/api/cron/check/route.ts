@@ -42,8 +42,17 @@ async function checkEndpoint(
 ) {
   const result = await performHealthCheck(endpoint.endpoint);
 
-  // Geçici connection reset hatalarını mevcut davranışa uygun şekilde pas geç.
+  // Geçici connection reset hatası servisi DOWN yapmaz; ancak teşhis için loglanır.
   if (result.errorCode === "ECONNRESET") {
+    await realtimeRequest("health_logs", {
+      method: "POST",
+      body: JSON.stringify({
+        serviceId: endpointId,
+        ...result,
+        ignored: true,
+        transition: "IGNORED_TRANSIENT",
+      }),
+    });
     return result;
   }
 
