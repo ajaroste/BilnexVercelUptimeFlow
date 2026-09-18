@@ -13,9 +13,24 @@ import { formatRelativeDate } from "@/lib/utils";
 /** Response time → colour */
 function responseColor(ms: number | null): string {
   if (ms === null) return "";
-  if (ms < 200) return "text-emerald-600 dark:text-emerald-400";
-  if (ms < 500) return "text-amber-500 dark:text-amber-400";
+  if (ms < 3_000) return "text-emerald-600 dark:text-emerald-400";
+  if (ms < 10_000) return "text-amber-500 dark:text-amber-400";
   return "text-rose-500 dark:text-rose-400";
+}
+
+function latencyMeta(status: LatencyStatus) {
+  switch (status) {
+    case "slow":
+      return { label: "YAVAŞ", className: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400" };
+    case "degraded":
+      return { label: "ÇOK YAVAŞ", className: "bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-400" };
+    case "timeout":
+      return { label: "TIMEOUT", className: "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400" };
+    case "error":
+      return { label: "BAĞLANTI HATASI", className: "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400" };
+    default:
+      return { label: "NORMAL", className: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" };
+  }
 }
 
 /** Uptime % → badge colour */
@@ -31,7 +46,7 @@ export default function ServiceDetail({ params }: { params: Promise<{ id: string
   const service = services.find(s => s.id === id);
   if (loading) return <AppShell><div className="card grid min-h-64 place-items-center text-sm text-slate-500">Veriler yükleniyor…</div></AppShell>;
   if (!service) notFound();
-  const logs = healthLogs.filter(log => log.serviceId === id);
+  const logs = healthLogs.filter(log => log.serviceId === id);\n  const latency = latencyMeta(service.latencyStatus);
 
   return (
     <AppShell>
@@ -49,6 +64,7 @@ export default function ServiceDetail({ params }: { params: Promise<{ id: string
               <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${service.currentStatus === "up" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10" : service.currentStatus === "down" ? "bg-rose-50 text-rose-600 dark:bg-rose-500/10" : "bg-slate-100 text-slate-500 dark:bg-slate-800"}`}>
                 {service.currentStatus === "up" ? "AKTİF" : service.currentStatus === "down" ? "KAPALI" : "BEKLİYOR"}
               </span>
+              <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${latency.className}`}>{latency.label}</span>
             </div>
             <p className="mt-1 text-sm text-slate-500 break-all">{service.url}</p>
           </div>
@@ -62,6 +78,23 @@ export default function ServiceDetail({ params }: { params: Promise<{ id: string
         <MiniStat icon={CheckCircle2} label="Son HTTP kodu" value={service.lastStatusCode ?? "—"} />
         <MiniStat icon={Clock3} label="Son kontrol" value={formatRelativeDate(service.lastChecked)} />
       </div>
+
+      {service.lastError && (
+        <section className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-500/20 dark:bg-rose-500/10">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-bold text-rose-800 dark:text-rose-300">Son hata nedeni</h2>
+            {(service.lastErrorType || service.lastErrorCode) && (
+              <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">
+                {service.lastErrorType ?? "HATA"} · {service.lastErrorCode ?? "—"}
+              </span>
+            )}
+          </div>
+          <p className="mt-2 text-sm font-semibold text-rose-700 dark:text-rose-300">{service.lastError}</p>
+          {service.lastErrorDetail && (
+            <p className="mt-1 text-xs leading-5 text-rose-600/90 dark:text-rose-300/80">{service.lastErrorDetail}</p>
+          )}
+        </section>
+      )}
 
       {/* Uptime badges — 7d / 30d / 90d */}
       <div className="mt-4 flex flex-wrap gap-2">
@@ -108,7 +141,9 @@ export default function ServiceDetail({ params }: { params: Promise<{ id: string
                   <span className={`text-xs font-semibold ${responseColor(log.responseTime)}`}>{log.responseTime} ms</span>
                 </div>
                 <p className="mt-2 text-xs text-slate-400">{new Date(log.timestamp).toLocaleString("tr-TR")} · HTTP {log.statusCode ?? "—"}</p>
-                {(log.error || log.response) && <p className="mt-2 truncate text-xs text-slate-500">{log.error ?? log.response}</p>}
+                {(log.error || log.response) && <p className="mt-2 text-xs text-slate-500">{log.error ?? log.response}</p>}
+                {(log.errorType || log.errorCode) && <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{log.errorType ?? "HATA"} · {log.errorCode ?? "—"}</p>}
+                {log.errorDetail && <p className="mt-1 text-[11px] leading-4 text-slate-400">{log.errorDetail}</p>}
               </div>
             ))}
           </div>
@@ -137,7 +172,10 @@ export default function ServiceDetail({ params }: { params: Promise<{ id: string
                     <td className="truncate px-4 py-3 text-slate-500">{new Date(log.timestamp).toLocaleString("tr-TR")}</td>
                     <td className="px-4 py-3 font-mono">{log.statusCode}</td>
                     <td className={`px-4 py-3 font-semibold ${responseColor(log.responseTime)}`}>{log.responseTime} ms</td>
-                    <td className="truncate px-4 py-3 text-slate-500">{log.error ?? log.response}</td>
+                    <td className="px-4 py-3 text-slate-500">
+                      <p className="truncate" title={log.errorDetail ?? log.error ?? log.response}>{log.error ?? log.response}</p>
+                      {(log.errorType || log.errorCode) && <p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-wide text-slate-400">{log.errorType ?? "HATA"} · {log.errorCode ?? "—"}</p>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
