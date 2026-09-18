@@ -41,9 +41,9 @@ async function checkEndpoint(
   incidents: Stored<Incident>,
 ) {
   const result = await performHealthCheck(endpoint.endpoint);
-  
-  // ECONNRESET hatasını Firebase'e hiçbir şekilde yansıtma (Pas geç)
-  if (result.error && result.error.includes("ECONNRESET")) {
+
+  // Geçici connection reset hatalarını mevcut davranışa uygun şekilde pas geç.
+  if (result.errorCode === "ECONNRESET") {
     return result;
   }
 
@@ -64,8 +64,12 @@ async function checkEndpoint(
       currentStatus,
       lastChecked: result.timestamp,
       responseTime: result.responseTime,
+      latencyStatus: result.latencyStatus,
       statusCode: result.statusCode,
       error: result.error,
+      errorType: result.errorType,
+      errorCode: result.errorCode,
+      errorDetail: result.errorDetail,
       totalChecks,
       successfulChecks,
       totalResponseTime,
@@ -74,12 +78,15 @@ async function checkEndpoint(
     }),
   });
 
-  // health_logs:
-  // 1. Durum değiştiyse (UP->DOWN veya DOWN->UP) KESİNLİKLE anında yaz.
-  // 2. Durum DOWN ise (200 harici, hata vs.) KESİNLİKLE anında yaz.
-  // 3. Arka arkaya 200 (UP) geliyorsa log spamı yapmamak için her 20 denemede 1 yaz.
-  // 4. EKLENTİ: Servis 200 dönse bile, eğer çok yavaş cevap verdiyse (>1000ms) anında grafiğe yansıt.
-  const shouldLog = changed || currentStatus !== "up" || result.responseTime > 1000 || totalChecks % 20 === 0;
+  // Durum değişimleri ve hatalar anında loglanır.
+  // Başarılı ama 3 saniye ve üzeri süren yanıtlar performans analizi için ayrıca loglanır.
+  // Normal yanıtlar log spamını önlemek için her 20 kontrolde bir kaydedilir.
+  const shouldLog =
+    changed ||
+    currentStatus !== "up" ||
+    result.latencyStatus !== "normal" ||
+    totalChecks % 20 === 0;
+
   if (shouldLog) {
     await realtimeRequest("health_logs", {
       method: "POST",
@@ -93,7 +100,8 @@ async function checkEndpoint(
     });
   }
 
-  // Incident: sadece durum değişiminde işlem yap
+  // Incident yalnızca UP/DOWN durum değişiminde açılır veya kapanır.
+  // Yavaş/degraded ama başarılı (2xx) yanıt servis durumunu DOWN yapmaz.
   if (!changed) return result;
 
   if (currentStatus === "down") {
@@ -122,8 +130,16 @@ async function checkEndpoint(
     }
   }
 
+  const diagnosticLines = [
+    result.error,
+    result.errorType || result.errorCode
+      ? `Tür/Kod: ${result.errorType ?? "—"} / ${result.errorCode ?? "—"}`
+      : null,
+    result.errorDetail,
+  ].filter(Boolean).join("\n");
+
   await sendTelegramNotification(currentStatus === "down"
-    ? `🔴 <b>${endpoint.name} DOWN</b>\n${endpoint.endpoint}\n${result.error ?? "Bağlantı hatası"}`
+    ? `🔴 <b>${endpoint.name} DOWN</b>\n${endpoint.endpoint}\n${diagnosticLines || "Bağlantı hatası"}`
     : `🟢 <b>${endpoint.name} tekrar UP</b>\n${endpoint.endpoint}\nYanıt: ${result.responseTime} ms`);
   return result;
 }
