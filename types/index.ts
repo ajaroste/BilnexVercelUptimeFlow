@@ -1,4 +1,5 @@
 export type ServiceStatus = "up" | "down" | "pending";
+export type LatencyStatus = "normal" | "slow" | "degraded" | "timeout" | "error";
 
 export interface Service {
   id: string;
@@ -10,7 +11,11 @@ export interface Service {
   lastChecked: string | null;
   lastResponseTime: number | null;
   lastStatusCode: number | null;
+  latencyStatus: LatencyStatus;
   lastError: string | null;
+  lastErrorType: string | null;
+  lastErrorCode: string | null;
+  lastErrorDetail: string | null;
   uptime24h: number;
   uptime7d: number;
   uptime30d: number;
@@ -32,7 +37,11 @@ export interface HealthEndpoint {
   lastChecked: string | null;
   responseTime: number | null;
   statusCode: number | null;
+  latencyStatus?: LatencyStatus;
   error: string | null;
+  errorType?: string | null;
+  errorCode?: string | null;
+  errorDetail?: string | null;
   uptime24h: number;
   uptime7d: number;
   uptime30d: number;
@@ -48,8 +57,12 @@ export interface HealthLog {
   success: boolean;
   statusCode: number | null;
   responseTime: number;
+  latencyStatus?: LatencyStatus;
   response: string;
   error: string | null;
+  errorType?: string | null;
+  errorCode?: string | null;
+  errorDetail?: string | null;
 }
 
 export interface Incident {
