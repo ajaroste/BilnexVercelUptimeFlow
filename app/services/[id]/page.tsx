@@ -46,7 +46,8 @@ export default function ServiceDetail({ params }: { params: Promise<{ id: string
   const service = services.find(s => s.id === id);
   if (loading) return <AppShell><div className="card grid min-h-64 place-items-center text-sm text-slate-500">Veriler yükleniyor…</div></AppShell>;
   if (!service) notFound();
-  const logs = healthLogs.filter(log => log.serviceId === id);\n  const latency = latencyMeta(service.latencyStatus);
+  const logs = healthLogs.filter(log => log.serviceId === id);
+  const latency = latencyMeta(service.latencyStatus);
 
   return (
     <AppShell>
