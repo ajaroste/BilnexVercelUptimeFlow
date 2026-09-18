@@ -9,6 +9,7 @@ import { useServices } from "@/components/service-provider";
 import { ResponseChart } from "@/components/response-chart";
 import { UptimeBar90 } from "@/components/uptime-bar";
 import { formatRelativeDate } from "@/lib/utils";
+import type { LatencyStatus } from "@/types";
 
 /** Response time → colour */
 function responseColor(ms: number | null): string {
